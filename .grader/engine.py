@@ -1,16 +1,16 @@
-"""Test engine: runs an assignment's tests and scores them.
+"""Test engine: runs the tests of an assignment and scores them.
 
 This file is self-contained (standard library only, Python 3.9+) because it is used in two places:
 
 * in the grader, which runs it inside an isolated container on our servers;
-* in each assignment repository (`.grader/engine.py`), where `check.py` uses it so that the
-  student can check their exercises on their own computer before submitting.
+* in the repository of each assignment (`.grader/engine.py`), where `check.py` uses it so that
+  students can check their exercises on their own computer before submitting.
 
 This way the student and the grader judge with the same code. If you change this file, copy the
 new version to the assignments with `grader sync-engine <assignment-folder>`.
 
-Tests follow the Classroom 50 format (the array accepted by `gh teacher assignment add
---tests`), and the semantics are the same as those of Classroom 50's built-in grader (`runner.py`):
+Tests follow the Classroom 50 format (the array accepted by `gh teacher assignment add --tests`),
+and their semantics are the same as those of the Classroom 50 built-in autograder (`runner.py`):
 
 * `io`: runs `run` with `input` on standard input and compares standard output with `expected`
   according to `comparison`: `included` (literal substring), `exact` (equal except for leading and
@@ -37,19 +37,19 @@ from typing import Callable, Optional
 
 ENGINE_VERSION = "1.0.0"
 DEFAULT_TIMEOUT = 10
-MAX_CHARACTERS = 2000
+MAX_CHARS = 2000
 COMPARISONS = ("included", "exact", "regex")
 TYPES = ("io", "run", "python")
 PYTEST_REPORT = ".grader-pytest.xml"
 
 
-class TestsError(ValueError):
-    """The tests file is not valid."""
+class TestFileError(ValueError):
+    """The test file is not valid."""
     __test__ = False  # not a pytest test class
 
 
 @dataclass
-class Test:
+class TestSpec:
     __test__ = False  # not a pytest test class
     name: str
     type: str
@@ -93,7 +93,7 @@ class TestResult:
     comparison: str = ""
 
     def to_classroom50(self) -> dict:
-        """A `tests` row of result.json (classroom50/result/v1); extra fields are preserved."""
+        """A row of `tests` in result.json (classroom50/result/v1); extra fields are kept."""
         row: dict = {
             "test-name": self.name,
             "passed": self.passed,
@@ -125,52 +125,52 @@ class Result:
 # ─── Loading tests ─────────────────────────────────────────────────────────────
 
 def _text_or_file(spec: dict, key: str, base: Path) -> str:
-    """The value of `key` or the content of `key-file` (relative to the tests file)."""
+    """The value of `key` or the contents of `key-file` (relative to the test file)."""
     if spec.get(key) is not None and spec.get(f"{key}-file") is not None:
-        raise TestsError(f'"{spec["name"]}": {key} and {key}-file cannot be used together')
+        raise TestFileError(f"'{spec['name']}': {key} and {key}-file cannot be used together")
     if spec.get(f"{key}-file") is not None:
         path = (base / spec[f"{key}-file"]).resolve()
         if base.resolve() not in path.parents and path != base.resolve():
-            raise TestsError(f'"{spec["name"]}": {key}-file is outside the tests folder')
+            raise TestFileError(f"'{spec['name']}': {key}-file is outside the tests folder")
         if not path.is_file():
-            raise TestsError(f'"{spec["name"]}": {spec[f"{key}-file"]} does not exist')
+            raise TestFileError(f"'{spec['name']}': {spec[f'{key}-file']} does not exist")
         return normalize(path.read_text(encoding="utf-8"))
     return spec.get(key) or ""
 
 
 def parse_tests(data: object, base: Path) -> list:
-    """Validates a Classroom 50 tests array (or an object with `tests`) and converts it."""
+    """Validates an array of Classroom 50 tests (or an object with `tests`) and converts it."""
     if isinstance(data, dict) and "tests" in data:
         data = data["tests"]
     if not isinstance(data, list):
-        raise TestsError("the tests file must be an array of tests")
+        raise TestFileError("the test file must be an array of tests")
     tests: list = []
     names: set = set()
     for i, spec in enumerate(data, start=1):
         if not isinstance(spec, dict):
-            raise TestsError(f"test {i} is not an object")
+            raise TestFileError(f"test {i} is not an object")
         name = spec.get("name")
         if not isinstance(name, str) or not name.strip():
-            raise TestsError(f"test {i} has no name")
+            raise TestFileError(f"test {i} has no name")
         if name in names:
-            raise TestsError(f'there are two tests named "{name}"')
+            raise TestFileError(f"there are two tests named '{name}'")
         names.add(name)
-        test_type = spec.get("type")
-        if test_type not in TYPES:
-            raise TestsError(f'"{name}": type must be one of {TYPES}')
+        kind = spec.get("type")
+        if kind not in TYPES:
+            raise TestFileError(f"'{name}': type must be one of {TYPES}")
         if not isinstance(spec.get("run"), str) or not spec["run"].strip():
-            raise TestsError(f'"{name}": run is missing')
+            raise TestFileError(f"'{name}': run is missing")
         points = spec.get("points", 0)
         if isinstance(points, bool) or not isinstance(points, int) or points < 0:
-            raise TestsError(f'"{name}": points must be a non-negative integer')
+            raise TestFileError(f"'{name}': points must be a non-negative integer")
         timeout = spec.get("timeout", 0)
         if isinstance(timeout, bool) or not isinstance(timeout, int) or not 0 <= timeout <= 600:
-            raise TestsError(f'"{name}": timeout must be between 0 and 600')
+            raise TestFileError(f"'{name}': timeout must be between 0 and 600")
         comparison = spec.get("comparison", "included")
-        if test_type == "io" and comparison not in COMPARISONS:
-            raise TestsError(f'"{name}": comparison must be one of {COMPARISONS}')
-        tests.append(Test(
-            name=name, type=test_type, run=spec["run"], points=points,
+        if kind == "io" and comparison not in COMPARISONS:
+            raise TestFileError(f"'{name}': comparison must be one of {COMPARISONS}")
+        tests.append(TestSpec(
+            name=name, type=kind, run=spec["run"], points=points,
             setup=spec.get("setup") or "",
             input=_text_or_file(spec, "input", base),
             expected=_text_or_file(spec, "expected", base),
@@ -182,18 +182,18 @@ def parse_tests(data: object, base: Path) -> list:
 
 
 def load_tests(path: Path) -> list:
-    """Reads a tests file (JSON). `*-file` paths are relative to its folder."""
+    """Reads a test file (JSON). `*-file` paths are relative to its folder."""
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise TestsError(f"{path}: invalid JSON ({exc})") from exc
+        raise TestFileError(f"{path}: invalid JSON ({exc})") from exc
     return parse_tests(data, Path(path).parent)
 
 
 # ─── Comparison ────────────────────────────────────────────────────────────────
 
 def normalize(text: Optional[str]) -> str:
-    """Windows or old Mac line breaks → \\n, as Classroom 50 does."""
+    """Windows or old Mac line endings → \\n, as Classroom 50 does."""
     return (text or "").replace("\r\n", "\n").replace("\r", "\n")
 
 
@@ -207,21 +207,21 @@ def compare(output: str, expected: str, comparison: str) -> bool:
     raise ValueError(f"unknown comparison: {comparison}")
 
 
-def truncate(text: str, limit: int = MAX_CHARACTERS) -> str:
+def truncate(text: str, limit: int = MAX_CHARS) -> str:
     return text if len(text) <= limit else text[:limit] + "\n… (truncated)"
 
 
 def _visible(line: str) -> str:
-    """Makes spaces and tabs visible so it can be seen where a line differs."""
+    """Makes spaces and tabs visible so that it is clear where a line differs."""
     return line.replace(" ", "·").replace("\t", "→")
 
 
 def explain_difference(expected: str, output: str) -> str:
-    """Where the output differs from what is expected, line by line, with spaces made visible.
+    """Where the output differs from what was expected, line by line, with whitespace visible.
 
-    Finds the chunk of the output that most resembles the expected text (the output usually starts
-    with the `input()` prompts, which are not in the expected text) and points out the first
-    different line and the first column where it differs."""
+    Looks for the chunk of the output that most resembles the expected text (the output usually
+    starts with the `input()` prompts, which are not in the expected text) and points out the first
+    line that differs and the first column where it differs."""
     expected_lines = expected.strip("\n").split("\n")
     output_lines = output.split("\n")
     if not expected_lines or not expected.strip():
@@ -240,20 +240,20 @@ def explain_difference(expected: str, output: str) -> str:
         output_line = window[n] if n < len(window) else None
         if output_line is None:
             return (f"Line {n + 1} of the expected output is missing:\n"
-                    f"  expected:    {_visible(expected_line)}\n  your output ends earlier.")
+                    f"  expected: {_visible(expected_line)}\n  your output ends earlier.")
         if output_line != expected_line:
             col = next((i for i, (a, b) in enumerate(zip(expected_line, output_line)) if a != b),
                        min(len(expected_line), len(output_line)))
-            return ("First different line (· is a space):\n"
+            return ("First line that differs (· is a space):\n"
                     f"  expected:    {_visible(expected_line)}\n"
                     f"  your output: {_visible(output_line)}\n"
                     f"               {' ' * col}^ differs at column {col + 1}")
-    return "The lines match, but not consecutively or with extra lines between them."
+    return "The lines match, but not one after another or with extra lines between them."
 
 
 # ─── Execution ─────────────────────────────────────────────────────────────────
 
-def _evaluate_python(test: Test, run: Runner, directory: Path) -> TestResult:
+def _evaluate_python(test: TestSpec, runner: Runner, directory: Path) -> TestResult:
     """pytest with a JUnit report (built into pytest, no plugins) and points split by cases."""
     report = directory / PYTEST_REPORT
     if report.exists():
@@ -261,12 +261,12 @@ def _evaluate_python(test: Test, run: Runner, directory: Path) -> TestResult:
     command = test.run
     if "--junitxml" not in command:
         command = f"{command} -p no:cacheprovider --junitxml={shlex.quote(PYTEST_REPORT)}"
-    ex = run(command, None, test.timeout)
+    ex = runner(command, None, test.timeout)
     base = dict(name=test.name, type="python", max_points=test.points, run=test.run,
                 output=normalize(ex.output), error=normalize(ex.error))
     if ex.timed_out:
         return TestResult(passed=False, points=0,
-                          reason=f"took longer than {test.timeout} s", **base)
+                          reason=f"took more than {test.timeout} s", **base)
     total = passed_cases = 0
     if report.is_file():
         try:
@@ -291,26 +291,25 @@ def _evaluate_python(test: Test, run: Runner, directory: Path) -> TestResult:
                       reason=f"pytest exited with code {ex.code} (no report)", **base)
 
 
-def evaluate_test(test: Test, run: Runner, directory: Path) -> TestResult:
+def evaluate_test(test: TestSpec, runner: Runner, directory: Path) -> TestResult:
     base = dict(name=test.name, type=test.type, max_points=test.points, run=test.run)
     if test.setup:
-        ex = run(test.setup, None, test.timeout)
+        ex = runner(test.setup, None, test.timeout)
         if ex.timed_out or ex.code != 0:
-            reason = (f"setup took longer than {test.timeout} s" if ex.timed_out
-                      else f'setup ("{test.setup}") exited with code {ex.code}')
+            reason = (f"setup took more than {test.timeout} s" if ex.timed_out
+                      else f"setup ('{test.setup}') exited with code {ex.code}")
             return TestResult(passed=False, points=0, reason=reason,
                               output=normalize(ex.output), error=normalize(ex.error), **base)
     if test.type == "python":
-        return _evaluate_python(test, run, directory)
+        return _evaluate_python(test, runner, directory)
 
-    ex = run(test.run, test.input if test.type == "io" else None, test.timeout)
+    ex = runner(test.run, test.input if test.type == "io" else None, test.timeout)
     output, error = normalize(ex.output), normalize(ex.error)
     if ex.timed_out:
         return TestResult(passed=False, points=0, input=test.input, output=output,
-                          error=error, expected=test.expected,
-                          comparison=test.comparison,
-                          reason=(f"took longer than {test.timeout} s: does it wait for more "
-                                  "input than it is given, or has a loop that never ends?"),
+                          error=error, expected=test.expected, comparison=test.comparison,
+                          reason=(f"took more than {test.timeout} s: is it waiting for more input "
+                                  "than it is given, or does it have a loop that never ends?"),
                           **base)
     if test.type == "run":
         passed = ex.code == test.exit_code
@@ -328,17 +327,17 @@ def evaluate_test(test: Test, run: Runner, directory: Path) -> TestResult:
             last = error.strip().splitlines()[-1]
             reason = f"the program ended with an error: {last}"
         else:
-            reason = "the output does not contain what is expected"
+            reason = "the output does not contain the expected text"
     return TestResult(passed=passed, points=test.points if passed else 0,
                       reason=reason, input=test.input, expected=test.expected,
                       output=output, error=error, comparison=test.comparison, **base)
 
 
-def evaluate(tests: list, run: Runner, directory: Path,
+def evaluate(tests: list, runner: Runner, directory: Path,
              on_finish: Optional[Callable[[TestResult], None]] = None) -> Result:
     result = Result()
     for test in tests:
-        r = evaluate_test(test, run, Path(directory))
+        r = evaluate_test(test, runner, Path(directory))
         result.tests.append(r)
         if on_finish:
             on_finish(r)
@@ -346,20 +345,20 @@ def evaluate(tests: list, run: Runner, directory: Path,
 
 
 def local_runner(directory: Path, python: Optional[str] = None) -> Runner:
-    """Runs commands with a subprocess in `directory`. It does NOT isolate anything: only for the
-    student on their own computer or for the grader's tests. On the server, use the container.
+    """Runs commands with a subprocess in `directory`. It does NOT isolate anything: only for
+    students on their own computer or for the grader's tests. On the server, use the container.
 
-    With `python`, a command starting with `python` or `python3` uses that interpreter (on Windows
-    `python` is sometimes the Microsoft Store shortcut)."""
+    With `python`, a command that starts with `python` or `python3` uses that interpreter (on
+    Windows `python` is sometimes the Microsoft Store shortcut)."""
     env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
                PYTHONDONTWRITEBYTECODE="1")
 
-    def run(command: str, input: Optional[str], timeout: int) -> Execution:
+    def run(command: str, stdin: Optional[str], timeout: int) -> Execution:
         if python:
             command = re.sub(r"^python3?(?=\s|$)", lambda _: shlex.quote(python)
                              if os.name != "nt" else f'"{python}"', command.strip())
         try:
-            p = subprocess.run(command, shell=True, cwd=directory, input=input or "",
+            p = subprocess.run(command, shell=True, cwd=directory, input=stdin or "",
                                capture_output=True, text=True, encoding="utf-8",
                                errors="replace", timeout=timeout, env=env)
         except subprocess.TimeoutExpired as exc:

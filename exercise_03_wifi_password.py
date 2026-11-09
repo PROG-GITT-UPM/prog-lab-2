@@ -1,2 +1,2 @@
-# Exercise 3 — Secure WiFi password
-# Write your program here. Remember: type hints on every variable.
+# Ejercicio 3 — Clave WiFi segura
+# Escribe aquí tu programa. Recuerda: type hints en todas las variables.

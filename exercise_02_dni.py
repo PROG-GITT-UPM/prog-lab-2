@@ -1,2 +1,2 @@
-# Exercise 2 — DNI letter
-# Write your program here. Remember: type hints on every variable.
+# Ejercicio 2 — Letra del DNI
+# Escribe aquí tu programa. Recuerda: type hints en todas las variables.

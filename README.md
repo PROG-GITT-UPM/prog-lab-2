@@ -46,6 +46,6 @@ git push
 ## Dónde ves tu corrección
 
 El corrector de la asignatura pasa las mismas pruebas que `check.py` a lo que has subido. Unos
-minutos después de tu `push`, en la página de tu repositorio, en **Releases**, aparece una
-**Corrección** con el resultado de cada prueba. Si una prueba falla, la corrección muestra tu
-salida, la salida esperada y dónde difieren.
+minutos después de tu `push`, en la página de tu repositorio, en **Releases**, aparece una entrada
+**Grading: N/9** con el resultado de cada prueba. Si una prueba falla, muestra tu salida, la
+salida esperada y dónde difieren.

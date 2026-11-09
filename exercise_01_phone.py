@@ -1,2 +1,2 @@
-# Exercise 1 — Phone number validator
-# Write your program here. Remember: type hints on every variable.
+# Ejercicio 1 — Validador de número de teléfono
+# Escribe aquí tu programa. Recuerda: type hints en todas las variables.
